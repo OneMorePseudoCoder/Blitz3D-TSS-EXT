@@ -65,6 +65,48 @@ enum {
 ////////////////////
 // STATIC STARTUP //
 ////////////////////
+
+bool IsDarkThemeByColor() {
+	DWORD value = 1;
+	DWORD size = sizeof(DWORD);
+
+	HKEY hKey;
+	if (RegOpenKeyExA(
+		HKEY_CURRENT_USER,
+		"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+		0,
+		KEY_READ,
+		&hKey) == ERROR_SUCCESS)
+	{
+		RegQueryValueExA(
+			hKey,
+			"AppsUseLightTheme",
+			NULL,
+			NULL,
+			(LPBYTE)&value,
+			&size);
+
+		RegCloseKey(hKey);
+	}
+
+	return value == 0;
+}
+
+typedef HRESULT(WINAPI* PDwmSetWindowAttribute)(HWND hwnd, DWORD dwAttribute, LPCVOID pvAttribute, DWORD cbAttribute);
+void SetDarkMode(HWND hwnd)
+{
+	HMODULE hDwmapi = LoadLibrary(TEXT("dwmapi.dll"));
+	if (hDwmapi) {
+		PDwmSetWindowAttribute DwmSetWindowAttribute = (PDwmSetWindowAttribute)GetProcAddress(hDwmapi, "DwmSetWindowAttribute");
+		if (DwmSetWindowAttribute) {
+			BOOL useDarkMode = TRUE;
+			DwmSetWindowAttribute(hwnd, 20, &useDarkMode, sizeof(useDarkMode));
+
+		}
+		FreeLibrary(hDwmapi);
+	}
+}
+
 gxRuntime* gxRuntime::openRuntime(HINSTANCE hinst, const std::string& cmd_line, Debugger* d) {
 	if(runtime) return 0;
 
@@ -91,6 +133,11 @@ gxRuntime* gxRuntime::openRuntime(HINSTANCE hinst, const std::string& cmd_line, 
 	int ws = WS_CAPTION, ws_ex = 0;
 
 	HWND hwnd = CreateWindowEx(ws_ex, "Blitz Runtime Class", app_t, ws, 0, 0, 0, 0, 0, 0, 0, 0);
+
+	if (IsDarkThemeByColor())
+	{
+		SetDarkMode(hwnd);
+	}
 
 	UpdateWindow(hwnd);
 
@@ -141,6 +188,10 @@ gxRuntime::gxRuntime(HINSTANCE hi, const std::string& cl, HWND hw) :
 	memset(&statex, 0, sizeof(statex));
 	statex.dwLength = sizeof(statex);
 	GlobalMemoryStatusEx(&statex);
+
+	memset(&pmc, 0, sizeof(pmc));
+	pmc.cb = sizeof(pmc);
+	GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc));
 
 	if (osinfo.dwMajorVersion == 6 && (osinfo.dwMinorVersion == 2 || osinfo.dwMinorVersion == 3)) {
 		HMODULE ddraw = LoadLibraryA("ddraw.dll");
@@ -680,24 +731,32 @@ int gxRuntime::getMilliSecs() {
 // MEMORYINFO //
 ////////////////
 int gxRuntime::getMemoryLoad() {
-	GlobalMemoryStatusEx(&statex);
 	return statex.dwMemoryLoad;
 }
 
 int gxRuntime::getTotalPhys() {
-	return statex.ullTotalPhys / 1024;
+	return statex.ullTotalPhys >> 20;
 }
 
 int gxRuntime::getAvailPhys() {
-	return statex.ullAvailPhys / 1024;
+	return statex.ullAvailPhys >> 20;
 }
 
 int gxRuntime::getTotalVirtual() {
-	return statex.ullTotalVirtual / 1024;
+	return statex.ullTotalVirtual >> 20;
 }
 
 int gxRuntime::getAvailVirtual() {
-	return statex.ullAvailVirtual / 1024;
+	return statex.ullAvailVirtual >> 20;
+}
+
+int gxRuntime::getCurrPhys() {
+	return pmc.WorkingSetSize >> 20;
+}
+
+void gxRuntime::updateMemoryStats() {
+	GlobalMemoryStatusEx(&statex);
+	GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc));
 }
 
 /////////////////////
